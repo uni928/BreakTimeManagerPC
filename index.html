@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>休憩管理タイマー</title>
+  <style>
+    :root{
+      --bg:#0f172a;
+      --panel:#111827;
+      --card:#0b1220;
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+      --accent:#38bdf8;
+      --work:#22c55e;
+      --short:#f59e0b;
+      --break:#ef4444;
+      --ring:rgba(56,189,248,.35);
+    }
+    html,body{height:100%;}
+    body{
+      margin:0;
+      font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
+      color:var(--text);
+      background: radial-gradient(1000px 600px at 10% -10%, #0b2a3a 0%, transparent 60%),
+                  radial-gradient(800px 600px at 110% -10%, #23123a 0%, transparent 60%),
+                  var(--bg);
+      display:flex;
+      flex-direction:column;
+    }
+    header{padding:16px 20px 8px;}
+    header h1{margin:0; font-size:18px; letter-spacing:.02em; color:#cfe8ff;}
+    header p{margin:6px 0 0; color:var(--muted); font-size:12px}
+
+    #historyWrap{
+      flex:1 1 auto;
+      min-height:0; /* for proper flex scroll */
+      padding:12px 16px 160px; /* 下部の固定バー（ボタン+合計）に被らないよう広めに */
+      box-sizing:border-box;
+      overflow:auto;
+    }
+    .empty{color:var(--muted); border:1px dashed #334155; background:rgba(15,23,42,.35); padding:20px; border-radius:14px; text-align:center; margin-top:8px;}
+    .entry{position:relative; border:1px solid #1f2937; background:linear-gradient(180deg, rgba(30,41,59,.6), rgba(2,6,23,.6)); backdrop-filter: blur(6px); border-radius:16px; margin-bottom:10px; padding:14px 16px 12px; box-shadow: 0 10px 20px rgba(0,0,0,.25);}
+    .entry.active{outline:2px solid var(--ring); box-shadow:0 0 0 4px rgba(56,189,248,.08)}
+    .row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+    .label{display:inline-flex; align-items:center; gap:8px; font-weight:700; letter-spacing:.05em;}
+    .dot{width:10px; height:10px; border-radius:999px; display:inline-block}
+    .dot.work{background:var(--work)}
+    .dot.short{background:var(--short)}
+    .dot.break{background:var(--break)}
+    .times{display:flex; gap:12px; font-variant-numeric:tabular-nums; color:#cbd5e1}
+    .stamp{opacity:.8; font-size:12px}
+    .elapsed{font-size:16px; font-weight:700}
+    .meta{margin-top:6px; color:var(--muted); font-size:12px}
+
+    .bar{
+      position:fixed; left:0; right:0; bottom:100px; /* 合計バーの分だけ上に */
+      background:linear-gradient(180deg, rgba(2,6,23,.3), rgba(2,6,23,.9));
+      border-top:1px solid #1f2937;
+      padding:10px 12px 12px;
+      display:grid; grid-template-columns:repeat(3,1fr); gap:10px;
+      box-sizing:border-box;
+      backdrop-filter:blur(8px);
+    }
+    button{appearance:none; border:0; border-radius:14px; padding:14px 12px; font-weight:800; letter-spacing:.05em; color:white; box-shadow:0 8px 14px rgba(0,0,0,.25), inset 0 -8px 20px rgba(255,255,255,.06); transition: transform .04s ease, filter .2s ease, box-shadow .2s ease; cursor:pointer;}
+    button:active{ transform: translateY(1px) scale(.995); }
+    .btn-work{background:linear-gradient(180deg, #0ea5e9, #0284c7);}
+    .btn-short{background:linear-gradient(180deg, #f59e0b, #b45309);}
+    .btn-break{background:linear-gradient(180deg, #ef4444, #b91c1c);}
+
+    .totals{position:fixed; left:0; right:0; bottom:0; background:#0f172a; border-top:1px solid #1f2937; padding:6px 16px; font-size:14px; color:var(--muted); display:flex; flex-direction:column; gap:2px; box-sizing:border-box;}
+    .totals span{font-variant-numeric:tabular-nums;}
+
+    @media (min-width: 820px){
+      body{align-items:center}
+      main{width:820px}
+      .bar{left:50%; right:auto; transform:translateX(-50%); width:820px}
+      .totals{left:50%; right:auto; transform:translateX(-50%); width:820px}
+    }
+      main{width:820px}
+      .bar{left:50%; right:auto; transform:translateX(-50%); width:820px}
+      .totals{left:50%; right:auto; transform:translateX(-50%); width:820px}
+    }
+      .totals{
+      position:fixed; left:0; right:0; bottom:0;
+      background:linear-gradient(180deg, rgba(2,6,23,.9), rgba(2,6,23,1));
+      border-top:1px solid #1f2937;
+      padding:6px 12px 8px;
+      box-sizing:border-box;
+    }
+    .totals-inner{display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; align-items:center}
+    .titem{display:flex; align-items:center; justify-content:space-between; gap:8px; background:rgba(15,23,42,.6); border:1px solid #1f2937; border-radius:12px; padding:8px 10px; font-variant-numeric:tabular-nums}
+    .titem .tlabel{color:#cbd5e1; font-size:12px; letter-spacing:.02em}
+    .titem .tval{font-weight:800}
+    .titem.total{grid-column: span 4; justify-content:space-between}
+
+</style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>休憩管理タイマー</h1>
+      <p>上：最新が一番上に積まれる履歴　／　下：開始ボタンと合計時間</p>
+    </header>
+    <section id="historyWrap">
+      <div id="emptyState" class="empty">まだ履歴がありません。下のボタンで開始してください。</div>
+      <div id="history"></div>
+    </section>
+  </main>
+
+  <div class="bar">
+    <button class="btn-work"  id="btnWork">仕事開始</button>
+    <button class="btn-short" id="btnShort">小休止開始</button>
+    <button class="btn-break" id="btnBreak">休憩開始</button>
+  </div>
+  <div class="totals" id="totals">
+    <span id="totalWork">仕事合計: 00:00:00</span>
+    <span id="totalShort">小休止合計: 00:00:00</span>
+    <span id="totalBreak">休憩合計: 00:00:00</span>
+    <span id="totalAll">総合計: 00:00:00</span>
+  </div>
+
+  <div class="totals" id="totalsBar">
+    <div class="totals-inner">
+      <div class="titem"><span class="dot work"></span><span class="tlabel">仕事</span><span class="tval" id="sumWork">00:00:00</span></div>
+      <div class="titem"><span class="dot short"></span><span class="tlabel">小休止</span><span class="tval" id="sumShort">00:00:00</span></div>
+      <div class="titem"><span class="dot break"></span><span class="tlabel">休憩</span><span class="tval" id="sumBreak">00:00:00</span></div>
+      <div class="titem total"><span class="tlabel">総合計</span><span class="tval" id="sumTotal">00:00:00</span></div>
+    </div>
+  </div>
+
+  <script>
+  (()=>{
+     const totalWorkEl  = document.getElementById('totalWork');
+     const totalShortEl = document.getElementById('totalShort');
+     const totalBreakEl = document.getElementById('totalBreak');
+     const totalAllEl   = document.getElementById('totalAll');
+    const historyEl   = document.getElementById('history');
+    const emptyEl     = document.getElementById('emptyState');
+    const btnWork     = document.getElementById('btnWork');
+    const btnShort    = document.getElementById('btnShort');
+    const btnBreak    = document.getElementById('btnBreak');
+    const sumWorkEl   = document.getElementById('sumWork');
+    const sumShortEl  = document.getElementById('sumShort');
+    const sumBreakEl  = document.getElementById('sumBreak');
+    const sumTotalEl  = document.getElementById('sumTotal');
+
+    /** @type {null | {id:string,type:'work'|'short'|'break', start:number, tick:number, el:HTMLElement}} */
+    let current = null;
+    /** @type {{id:string,type:string,start:number,end?:number}[]} */
+    let history = [];
+
+    const K_HISTORY = 'breakManager.history.v1';
+    const K_CURRENT = 'breakManager.current.v1';
+
+    const TYPE_LABEL = { work: '仕事', short: '小休止', break: '休憩' };
+    const TYPE_CLASS = { work:'work', short:'short', break:'break' };
+
+    function pad(n){ return n.toString().padStart(2,'0'); }
+    function fmtClock(ms){
+      const s = Math.floor(ms/1000);
+      const h = Math.floor(s/3600);
+      const m = Math.floor((s%3600)/60);
+      const ss= s%60;
+      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+    }
+    function fmtStamp(t){
+      const d = new Date(t);
+      return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function save(){
+      //localStorage.setItem(K_HISTORY, JSON.stringify(history));
+      //localStorage.setItem(K_CURRENT, current ? JSON.stringify({id:current.id, type:current.type, start:current.start}) : '');
+    }
+
+    function restore(){
+      try{
+        const h = JSON.parse(localStorage.getItem(K_HISTORY) || '[]');
+        if(Array.isArray(h)) history = h;
+      }catch{}
+      try{
+        const c = JSON.parse(localStorage.getItem(K_CURRENT) || 'null');
+        if(c && c.start && c.type){
+          startTimer(c.type, c.start, true); // resume
+        }
+      }catch{}
+      renderAll();
+      renderTotals();
+      try{ const c = JSON.parse(localStorage.getItem(K_CURRENT) || 'null'); if(c && c.start && c.type){ startTimer(c.type, c.start, true); } }catch{}
+      renderAll();
+    }
+
+    function renderAll(){
+      historyEl.innerHTML = '';
+      const items = [...history].sort((a,b)=> b.start - a.start);
+      if(items.length===0 && !current){ emptyEl.style.display='block'; updateTotals(); return; }
+      emptyEl.style.display='none';
+      for(const e of items){ if(current && e.id===current.id) continue; historyEl.appendChild(createEntryEl(e.type, e.start, e.end)); }
+      if(current){ historyEl.prepend(current.el); }
+      updateTotals();
+    }
+
+    function createEntryEl(type, start, end){
+      const el = document.createElement('div');
+      el.className = 'entry';
+      el.innerHTML = `
+        <div class="row">
+          <div class="label"><span class="dot ${TYPE_CLASS[type]}"></span><span>${TYPE_LABEL[type]}</span></div>
+          <div class="times"><span class="elapsed">${fmtClock((end||Date.now())-start)}</span></div>
+        </div>
+        <div class="meta"><span class="stamp">開始: ${fmtStamp(start)}</span>${end ? `<span class="stamp" style="margin-left:8px">終了: ${fmtStamp(end)}</span>` : ''}</div>`;
+      return el;
+    }
+
+    function stopCurrent(endTime){
+      if(!current) return;
+      const end = endTime || Date.now();
+      // 更新：DOM を終了表示に
+      const finalized = createEntryEl(current.type, current.start, end);
+      current.el.replaceWith(finalized);
+      // 履歴に保存（current は history 上にも存在するが、end を付与して確定）
+      const idx = history.findIndex(x=>x.id===current.id);
+      if(idx>=0){ history[idx].end = end; }
+      clearInterval(current.tick);
+      current = null;
+      save();
+      renderTotals();
+    }
+
+    function startTimer(type, startOverride, isRestore=false){
+      // すでに同一タイプが動作中なら何もしない
+      if(current && current.type===type && !startOverride) return;
+      // 他タイマー停止
+      if(current) stopCurrent(startOverride || Date.now());
+
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      const start = startOverride || Date.now();
+      const el = createEntryEl(type, start, null);
+      el.classList.add('active');
+      const elapsedEl = el.querySelector('.elapsed');
+
+      // 一番上に挿入
+      emptyEl.style.display='none';
+      historyEl.prepend(el);
+
+      // 配列に追加（上から追加の要件はDOMで満たす。配列は普通にpush）
+      history.push({id, type, start});
+
+      // tick
+      const tick = setInterval(()=>{
+        const now = Date.now();
+        elapsedEl.textContent = fmtClock(now - start);
+        renderTotals();
+      }, 1000);
+
+      current = {id, type, start, tick, el};
+      save();
+
+      if(!isRestore){
+        // 軽いフィードバック
+        el.animate([
+          { transform:'translateY(-4px)', filter:'brightness(1.2)' },
+          { transform:'translateY(0)', filter:'brightness(1)' }
+        ], {duration:220, easing:'ease-out'});
+      }
+      renderTotals();
+      current = {id, type, start, tick, el};
+      save();
+    }
+
+    function updateTotals(){
+      let totalWork=0, totalShort=0, totalBreak=0;
+      for(const e of history){
+        const end = e.end || (current && current.id===e.id ? Date.now() : e.start);
+        const dur = end - e.start;
+        if(e.type==='work') totalWork+=dur;
+        if(e.type==='short') totalShort+=dur;
+        if(e.type==='break') totalBreak+=dur;
+      }
+      totalWorkEl.textContent  = `仕事合計: ${fmtClock(totalWork)}`;
+      totalShortEl.textContent = `小休止合計: ${fmtClock(totalShort)}`;
+      totalBreakEl.textContent = `休憩合計: ${fmtClock(totalBreak)}`;
+      totalAllEl.textContent   = `総合計: ${fmtClock(totalWork+totalShort+totalBreak)}`;
+    }
+
+    btnWork.addEventListener('click', ()=> startTimer('work'));
+    btnShort.addEventListener('click', ()=> startTimer('short'));
+    btnBreak.addEventListener('click', ()=> startTimer('break'));
+
+    window.addEventListener('beforeunload', ()=>{ save(); });
+
+    // 集計関数を追加
+    function computeTotals(){
+      const now = Date.now();
+      let ws=0, ss=0, bs=0;
+      for(const e of history){
+        const end = e.end ?? ((current && current.id===e.id) ? now : e.start);
+        const dur = Math.max(0, end - e.start);
+        if(e.type==='work') ws += dur;
+        else if(e.type==='short') ss += dur;
+        else if(e.type==='break') bs += dur;
+      }
+      if(current && !history.find(h=>h.id===current.id)){
+        if(current.type==='work') ws += (now - current.start);
+        if(current.type==='short') ss += (now - current.start);
+        if(current.type==='break') bs += (now - current.start);
+      }
+      const total = ws + ss + bs;
+      return {ws, ss, bs, total};
+    }
+    function renderTotals(){
+      const {ws, ss, bs, total} = computeTotals();
+      sumWorkEl.textContent  = fmtClock(ws);
+      sumShortEl.textContent = fmtClock(ss);
+      sumBreakEl.textContent = fmtClock(bs);
+      sumTotalEl.textContent = fmtClock(total);
+    }
+
+    //restore();
+    updateTotals();
+  })();
+  </script>
+</body>
+</html>
